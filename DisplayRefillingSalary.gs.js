@@ -1,4 +1,4 @@
-/*function displaySalary() {
+function displaySalary() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ds = ss.getSheetByName("DisplaySalary");
   var showAll = ds.getRange("A2").getValue();
@@ -24,55 +24,58 @@
     var iDuty = hdr.indexOf("Duty");
     var maxH  = sheetName==="Talamban"? 12 : 11.5;
 
-    data.slice(2).forEach(function(r) {
+    data.slice(2).forEach(function (r) {
       var d = r[iDate];
-      if (!(d>=attStart && d<=attEnd)) return;
+      if (!(d instanceof Date) || isNaN(d)) return;
 
-      // parse Cash Advances
-      var txt = (r[iExp]||"") + "";
-      var reCA = /CA\s+([^=;]+)=\s*([\d\.]+)/gi, m;
-      while ((m = reCA.exec(txt))) {
-        var e = m[1].trim(), v = parseFloat(m[2])||0;
-        cashAdv[e] = (cashAdv[e]||0) + v;
+      var inAtt = attStart && attEnd && d >= attStart && d <= attEnd;
+      var inOT  = otStart  && otEnd  && d >= otStart  && d <= otEnd;
+
+      // --- Cash Advances ONLY within attendance window (B2:C2)
+      if (inAtt) {
+        var txt = (r[iExp] || "") + "";
+        var reCA = /CA\s+([^=;]+)=\s*([\d\.]+)/gi, m;
+        while ((m = reCA.exec(txt))) {
+          var emp = m[1].trim(), amt = parseFloat(m[2]) || 0;
+          cashAdv[emp] = (cashAdv[emp] || 0) + amt;
+        }
       }
 
-      // split duties
-      (""+r[iDuty]).split(",").forEach(function(p){
-        var t = p.trim();
+      // --- Duties parsed once
+      ("" + r[iDuty]).split(",").forEach(function (part) {
+        var t = part.trim();
         if (!t) return;
-        var name = t.replace(/\(.*\)/,"").trim();
+        var name = t.replace(/\(.*\)/, "").trim();
+        var maxH = (sheetName === "Talamban" ? 12 : 11.5);
 
-        // always count a base day
-        baseCount[name] = (baseCount[name]||0) + 1;
+        // Base day only inside attendance window
+        if (inAtt) baseCount[name] = (baseCount[name] || 0) + 1;
 
-        // only apply OT/UT/HD in the OT-window
-        if (d>=otStart && d<=otEnd) {
-          // half-day
+        // OT/UT/HD only inside OT window (D2:E2)
+        if (inOT) {
           if (/\(HD\)/i.test(t)) {
-            contribList[name]     = contribList[name]||[];
+            contribList[name] = contribList[name] || [];
             contribList[name].push("- hd 0.5");
-            contribFraction[name] = (contribFraction[name]||0) - 0.5;
+            contribFraction[name] = (contribFraction[name] || 0) - 0.5;
           }
-          // overtime
           var mo = t.match(/\(OT:\s*([\d\.]+)\)/i);
           if (mo) {
-            var h = parseFloat(mo[1])||0;
-            contribList[name]     = contribList[name]||[];
+            var h = parseFloat(mo[1]) || 0;
+            contribList[name] = contribList[name] || [];
             contribList[name].push("ot " + h + "/" + maxH);
-            contribFraction[name] = (contribFraction[name]||0) + (h/maxH);
+            contribFraction[name] = (contribFraction[name] || 0) + (h / maxH);
           }
-          // undertime
           var mu = t.match(/\(UT:\s*([\d\.]+)\)/i);
           if (mu) {
-            var h2 = parseFloat(mu[1])||0;
-            contribList[name]     = contribList[name]||[];
+            var h2 = parseFloat(mu[1]) || 0;
+            contribList[name] = contribList[name] || [];
             contribList[name].push("- ut (1-" + h2 + "/" + maxH + ")");
-            contribFraction[name] = (contribFraction[name]||0)
-                                  - (1 - (h2/maxH));
+            contribFraction[name] = (contribFraction[name] || 0) - (1 - (h2 / maxH));
           }
         }
       });
     });
+
   });
 
   // Pull Attendance data
@@ -143,4 +146,4 @@
   });
 
   if (out.length) ds.getRange(3,1,out.length,1).setValues(out);
-}*/
+}
