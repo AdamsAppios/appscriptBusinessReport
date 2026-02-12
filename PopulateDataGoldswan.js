@@ -76,9 +76,19 @@ function handleGoldswanPopulate(e) {
     // Duty: e.g., "nag duty lito" → lito
     const dutyLine = lines.find((l) => /duty/i.test(l));
     if (dutyLine) {
-      const dm = dutyLine.match(/duty\s+([A-Za-z]+)/i);
-      if (dm && headerToCol['Duty']) {
-        updates.push({ col: headerToCol['Duty'], value: dm[1] });
+      const dutyTailMatch = dutyLine.match(/\bduty\b(.*)$/i);
+      if (dutyTailMatch && headerToCol['Duty']) {
+        const dutyTail = dutyTailMatch[1] || '';
+        const names = dutyTail
+          .replace(/[&,]/g, ' ')
+          .split(/\s+/)
+          .map((n) => n.replace(/[^A-Za-z]/g, '').trim())
+          .filter(Boolean)
+          .map((n) => n.charAt(0).toUpperCase() + n.slice(1).toLowerCase());
+
+        if (names.length) {
+          updates.push({ col: headerToCol['Duty'], value: names.join(', ') });
+        }
       }
     }
 
