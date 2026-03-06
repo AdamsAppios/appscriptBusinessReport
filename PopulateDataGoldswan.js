@@ -67,7 +67,8 @@ function handleGoldswanPopulate(e) {
       { re: /\brectangle\b/i,          header: 'Rect',           fn: firstNumberAfterKey },
       { re: /\bround\b/i,              header: 'Rnd',            fn: firstNumberAfterKey },
       { re: /\bpick\s*up\b/i,          header: 'Pickup',         fn: firstNumberAfterKey },
-      { re: /\bplus\s*1\b/i,           header: 'Plus 1',         fn: sumNumbersAfterKey },
+      // Accept both "Plus 1" and plain "Plus" message formats, e.g. "Plus: 6 gals"
+      { re: /\bplus(?:\s*1)?\b/i,      header: 'Plus 1',         fn: sumNumbersAfterKey },
       { re: /badger\s*meter\b/i,       header: 'Badger Meter',   fn: firstNumberAfterKey },
       { re: /total\s*sales\b/i,        header: 'T. Sales  Text', fn: firstNumberAfterKey },
       { re: /net\s*amount\b/i,         header: 'CTO Text',       fn: firstNumberAfterKey },
