@@ -1,5 +1,3 @@
-var DISPLAY_SWELDO_DOC_ID = "1exhAo09Fu_lIkr2bWi6E7I9QcIvimVtKaKs3lP7lhQY"; // Put your "Display Sweldo" Google Doc ID here.
-
 function displaySalary() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ds = ss.getSheetByName("DisplaySalary");
@@ -9,9 +7,13 @@ function displaySalary() {
   var lastRow = ds.getLastRow();
   var oldA = lastRow > 2 ? ds.getRange(3, 1, lastRow - 2, 1).getValues() : [];
   var rowsToClear = [];
+  var summaryRowsToClear = [];
   for (var i = 0; i < oldA.length; i++) {
     var cellTxt = String(oldA[i][0] || "");
     if (/calculation days\s*:/i.test(cellTxt)) rowsToClear.push(3 + i);
+    if (isGeneratedDisplaySalarySummaryCell_(cellTxt)) {
+      summaryRowsToClear.push(3 + i);
+    }
   }
 
   var hdrRow = ds.getRange(1, 1, 1, ds.getLastColumn()).getValues()[0];
@@ -28,6 +30,9 @@ function displaySalary() {
     ds.getRange(r, 1).clearContent();
     ds.getRange(r, 6).clearContent();
     ds.getRange(r, totalCol).clearContent();
+  });
+  summaryRowsToClear.forEach(function(r) {
+    ds.getRange(r, 1).clearContent();
   });
 
   if (!showAll) return;
@@ -195,161 +200,77 @@ function displaySalary() {
   if (fVals.length) ds.getRange(3, 6, fVals.length, 1).setValues(fVals);
   if (hVals.length) ds.getRange(3, totalCol, hVals.length, 1).setValues(hVals);
 
-  appendDisplaySalaryToDoc_(ds, tz, attStart, attEnd);
+  syncDisplaySalaryTotalsColumn_(ds, totalCol);
+  SpreadsheetApp.flush();
+  writeDisplaySalarySummaryCell_(ds, tz, attStart, attEnd, totalCol);
 }
 
-function appendDisplaySalaryToDoc_(sheet, tz, startDate, endDate) {
-  if (!DISPLAY_SWELDO_DOC_ID) return;
+function writeDisplaySalarySummaryCell_(sheet, tz, startDate, endDate, totalCol) {
   if (!(startDate instanceof Date) || isNaN(startDate)) return;
   if (!(endDate instanceof Date) || isNaN(endDate)) return;
+  var contentRows = getDisplaySalaryContentRows_(sheet);
+  if (!contentRows.length) return;
 
-  var title = "Refilling Salary from "
+  var summaryText = buildDisplaySalarySummaryText_(sheet, tz, startDate, endDate, contentRows, totalCol);
+  if (!summaryText) return;
+
+  var lastEmployeeRow = contentRows[contentRows.length - 1].row;
+  var targetRow = lastEmployeeRow + 6;
+  var targetCell = sheet.getRange(targetRow, 1);
+  targetCell.setValue(summaryText);
+  targetCell.setWrap(true);
+}
+
+function buildDisplaySalarySummaryText_(sheet, tz, startDate, endDate, contentRows, totalCol) {
+  var title = "Refilling and House Salary from "
     + Utilities.formatDate(startDate, tz, "MM/dd/yyyy")
     + " to "
     + Utilities.formatDate(endDate, tz, "MM/dd/yyyy");
 
-  var sectionLines = buildDisplaySalarySectionLines_(sheet);
-  var doc = DocumentApp.openById(DISPLAY_SWELDO_DOC_ID);
-  var body = doc.getBody();
-  var titleIndexes = findParagraphIndexesByText_(body, title);
-  var titleIndex = -1;
+  var blocks = [];
 
-  if (!titleIndexes.length) {
-    if (body.getNumChildren() > 0) {
-      var tail = getBodyChildText_(body, body.getNumChildren() - 1).trim();
-      if (tail) body.appendParagraph("");
-    }
-    var newTitlePara = body.appendParagraph(title);
-    setParagraphFullyBold_(newTitlePara, true);
-    titleIndex = body.getNumChildren() - 1;
-  } else {
-    for (var d = titleIndexes.length - 1; d >= 1; d--) {
-      var dupStart = titleIndexes[d];
-      var dupEnd = findSectionEndIndex_(body, dupStart + 1);
-      clearBodyRange_(body, dupStart, dupEnd);
-    }
-    titleIndex = findParagraphIndexByText_(body, title);
-    var titlePara = body.getChild(titleIndex).asParagraph();
-    titlePara.setText(title);
-    setParagraphFullyBold_(titlePara, true);
-  }
-
-  var sectionEnd = findSectionEndIndex_(body, titleIndex + 1);
-  clearBodyRange_(body, titleIndex + 1, sectionEnd);
-
-  var insertAt = titleIndex + 1;
-  if (!sectionLines.length) {
-    body.insertParagraph(insertAt, "(No salary rows found)").setBold(false);
-  } else {
-    sectionLines.forEach(function(line) {
-      body.insertParagraph(insertAt, line.text).setBold(!!line.bold);
-      insertAt++;
-    });
-  }
-
-  doc.saveAndClose();
-}
-
-function buildDisplaySalarySectionLines_(sheet) {
-  var lastRow = sheet.getLastRow();
-  var values = lastRow > 2 ? sheet.getRange(3, 1, lastRow - 2, 1).getValues() : [];
-  var lines = [];
-  var roundedParts = [];
-  var roundedTotal = 0;
-
-  values.forEach(function(row) {
-    var cellText = String(row[0] || "").trim();
-    if (!cellText) return;
-
-    var perEmpLines = cellText
-      .split(/\r?\n/)
-      .map(function(s) { return s.trim(); })
-      .filter(Boolean);
-    if (!perEmpLines.length) return;
-
-    perEmpLines.forEach(function(text) {
-      lines.push({ text: text, bold: false });
-    });
-    lines.push({ text: "", bold: false });
-
-    var lastNumber = extractLastNumber_(cellText);
-    if (lastNumber === null) return;
-    var rounded = roundHalfUp_(lastNumber);
-    roundedParts.push(formatWholeWithCommas_(rounded));
-    roundedTotal += rounded;
+  contentRows.forEach(function(entry) {
+    blocks.push(entry.text);
   });
 
-  if (roundedParts.length) {
-    lines.push({ text: "Total Salary for house and refilling", bold: false });
-    lines.push({
-      text: roundedParts.join("+") + "=" + formatWholeWithCommas_(roundedTotal),
-      bold: false
-    });
+  var totalText = String(sheet.getRange(2, totalCol || 8).getDisplayValue() || "").trim();
+  if (totalText) {
+    blocks.push("Total Salary for house and refilling\n" + totalText);
   }
 
-  while (lines.length && !lines[lines.length - 1].text) lines.pop();
-  return lines;
+  return [title, blocks.join("\n\n")].filter(Boolean).join("\n\n");
 }
 
-function findParagraphIndexByText_(body, exactText) {
-  var all = findParagraphIndexesByText_(body, exactText);
-  return all.length ? all[0] : -1;
+function isGeneratedDisplaySalarySummaryCell_(text) {
+  return /^Refilling\s+and\s+House\s+Salary\s+from\b/i.test(String(text || "").trim());
 }
 
-function findParagraphIndexesByText_(body, exactText) {
-  var matches = [];
-  var normalizedTarget = normalizeHeaderText_(exactText);
-  for (var i = 0; i < body.getNumChildren(); i++) {
-    var el = body.getChild(i);
-    if (el.getType() !== DocumentApp.ElementType.PARAGRAPH) continue;
-    if (normalizeHeaderText_(el.asParagraph().getText()) === normalizedTarget) {
-      matches.push(i);
-    }
-  }
-  return matches;
+function getDisplaySalaryContentRows_(sheet) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 3) return [];
+
+  var values = sheet.getRange(3, 1, lastRow - 2, 1).getDisplayValues();
+  var rows = [];
+
+  values.forEach(function(row, idx) {
+    var text = String(row[0] || "").trim();
+    if (!text) return;
+    if (isGeneratedDisplaySalarySummaryCell_(text)) return;
+    rows.push({ row: idx + 3, text: text });
+  });
+
+  return rows;
 }
 
-function normalizeHeaderText_(text) {
-  return String(text || "")
-    .trim()
-    .replace(/:$/, "")
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
+function syncDisplaySalaryTotalsColumn_(sheet, totalCol) {
+  var contentRows = getDisplaySalaryContentRows_(sheet);
+  if (!contentRows.length) return;
 
-function setParagraphFullyBold_(paragraph, isBold) {
-  var makeBold = !!isBold;
-  paragraph.setBold(makeBold);
-  var text = paragraph.getText();
-  if (!text) return;
-  paragraph.editAsText().setBold(0, text.length - 1, makeBold);
-}
-
-function findSectionEndIndex_(body, fromIndex) {
-  for (var i = fromIndex; i < body.getNumChildren(); i++) {
-    var txt = getBodyChildText_(body, i).trim();
-    if (!txt) continue;
-    if (isSalarySectionHeader_(txt)) return i;
-  }
-  return body.getNumChildren();
-}
-
-function clearBodyRange_(body, startIndex, endExclusive) {
-  for (var i = endExclusive - 1; i >= startIndex; i--) {
-    body.removeChild(body.getChild(i));
-  }
-}
-
-function getBodyChildText_(body, index) {
-  var el = body.getChild(index);
-  var t = el.getType();
-  if (t === DocumentApp.ElementType.PARAGRAPH) return el.asParagraph().getText();
-  if (t === DocumentApp.ElementType.LIST_ITEM) return el.asListItem().getText();
-  return "";
-}
-
-function isSalarySectionHeader_(text) {
-  return /^(Refilling Salary|Moonlit Attendance)\s+from\s+\d{2}\/\d{2}\/\d{4}\s+to\s+\d{2}\/\d{2}\/\d{4}:?$/i.test(String(text || "").trim());
+  contentRows.forEach(function(entry) {
+    var lastNumber = extractLastNumber_(entry.text);
+    if (lastNumber === null) return;
+    sheet.getRange(entry.row, totalCol).setValue(roundHalfUp_(lastNumber));
+  });
 }
 
 function extractLastNumber_(text) {
@@ -362,8 +283,4 @@ function extractLastNumber_(text) {
 
 function roundHalfUp_(n) {
   return n >= 0 ? Math.floor(n + 0.5) : Math.ceil(n - 0.5);
-}
-
-function formatWholeWithCommas_(n) {
-  return Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
